@@ -1,6 +1,5 @@
 package com.example.parcelsurveyor.ui
 
-import android.content.Context
 import android.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -8,6 +7,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.parcelsurveyor.gnss.GnssFixQuality
+import com.example.parcelsurveyor.gnss.GnssPosition
 import com.example.parcelsurveyor.data.FeatureLayerType
 import com.example.parcelsurveyor.data.FeatureRecord
 import com.example.parcelsurveyor.data.LatLngPoint
@@ -43,6 +44,7 @@ fun GisMapView(
     activeLayer: FeatureLayerType,
     savedFeatures: List<Pair<FeatureLayerType, List<FeatureRecord>>>,
     currentShapePoints: List<LatLngPoint>,
+    gnssPosition: GnssPosition? = null,
     onMapTap: (LatLngPoint) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -167,6 +169,17 @@ fun GisMapView(
                     }
                     map.overlays.add(draftPolygon)
                 }
+            }
+
+            // 4. Render Active External GNSS Receiver Cursor
+            if (gnssPosition != null && gnssPosition.fixQuality != GnssFixQuality.NO_FIX) {
+                val gnssPoint = GeoPoint(gnssPosition.latitude, gnssPosition.longitude)
+                val gnssMarker = Marker(map).apply {
+                    position = gnssPoint
+                    title = "GNSS Position (${gnssPosition.fixQuality.displayName})"
+                    snippet = "Sats: ${gnssPosition.satellitesCount}, HDOP: ${gnssPosition.hdop}"
+                }
+                map.overlays.add(gnssMarker)
             }
 
             map.invalidate()
