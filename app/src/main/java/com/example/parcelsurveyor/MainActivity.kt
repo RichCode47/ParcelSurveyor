@@ -4,8 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +24,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Polyline
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -74,6 +73,8 @@ import com.example.parcelsurveyor.ui.BluetoothDeviceDialog
 import com.example.parcelsurveyor.ui.CompactGnssChip
 import com.example.parcelsurveyor.ui.GisMapView
 import com.example.parcelsurveyor.ui.theme.ParcelSurveyorTheme
+import com.example.parcelsurveyor.util.GisDataExporter
+import com.example.parcelsurveyor.util.GisGeometryUtils
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -127,6 +128,7 @@ fun GisAppScreen(
     var savedFeatures by remember { mutableStateOf<List<Pair<FeatureLayerType, List<FeatureRecord>>>>(emptyList()) }
     var showBluetoothDialog by remember { mutableStateOf(false) }
     var showLayerPickerModal by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
     var followGnssLocation by remember { mutableStateOf(true) }
 
     val connectionState by gnssManager.connectionState.collectAsState()
@@ -171,6 +173,53 @@ fun GisAppScreen(
                 showBluetoothDialog = false
             },
             onDismiss = { showBluetoothDialog = false }
+        )
+    }
+
+    // Export Format Dialog
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("Export Survey Data", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FeatureLayerOption(
+                        title = "CSV File (.csv)",
+                        description = "Coordinates list table with Point ID, Lat, Lng",
+                        icon = Icons.Default.Share,
+                        onClick = {
+                            showExportDialog = false
+                            val file = GisDataExporter.exportToCsv(context, savedFeatures)
+                            GisDataExporter.shareExportedFile(context, file, "text/csv")
+                        }
+                    )
+                    FeatureLayerOption(
+                        title = "Google Earth KML (.kml)",
+                        description = "Open points, lines, polygons in Google Earth",
+                        icon = Icons.Default.Share,
+                        onClick = {
+                            showExportDialog = false
+                            val file = GisDataExporter.exportToKml(context, savedFeatures)
+                            GisDataExporter.shareExportedFile(context, file, "application/vnd.google-earth.kml+xml")
+                        }
+                    )
+                    FeatureLayerOption(
+                        title = "GeoJSON File (.geojson)",
+                        description = "Standard GIS spatial format for QGIS / ArcGIS Pro",
+                        icon = Icons.Default.Share,
+                        onClick = {
+                            showExportDialog = false
+                            val file = GisDataExporter.exportToGeoJson(context, savedFeatures)
+                            GisDataExporter.shareExportedFile(context, file, "application/geo+json")
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showExportDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
@@ -246,6 +295,13 @@ fun GisAppScreen(
                         onClick = { showBluetoothDialog = true },
                         modifier = Modifier.padding(end = 4.dp)
                     )
+
+                    IconButton(onClick = { showExportDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Export Survey Data"
+                        )
+                    }
 
                     TextButton(
                         onClick = {
@@ -354,7 +410,7 @@ fun GisAppScreen(
                 )
             }
 
-            // Active Collection Bottom Panel Overlay
+            // Active Collection Bottom Panel Overlay with Real-time Measurements
             activeLayer?.let { layer ->
                 Card(
                     modifier = Modifier
@@ -396,10 +452,28 @@ fun GisAppScreen(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
                                     )
-                                    Text(
-                                        text = if (layer.isPoint) "Tap map to save point" else "${currentShapePoints.size} points added",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
+                                    if (layer.isPoint) {
+                                        Text(
+                                            text = "Tap map to save point",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    } else if (layer == FeatureLayerType.DETAIL_LINE) {
+                                        val lenMeters = GisGeometryUtils.calculateLineLengthMeters(currentShapePoints)
+                                        Text(
+                                            text = "${currentShapePoints.size} pts | Length: ${GisGeometryUtils.formatDistanceString(lenMeters)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    } else if (layer == FeatureLayerType.DETAIL_POLYGON) {
+                                        val areaSqMeters = GisGeometryUtils.calculatePolygonAreaSqMeters(currentShapePoints)
+                                        Text(
+                                            text = "${currentShapePoints.size} pts | ${GisGeometryUtils.formatAreaSummary(areaSqMeters)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
 
