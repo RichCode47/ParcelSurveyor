@@ -45,6 +45,7 @@ fun GisMapView(
     savedFeatures: List<Pair<FeatureLayerType, List<FeatureRecord>>>,
     currentShapePoints: List<LatLngPoint>,
     gnssPosition: GnssPosition? = null,
+    followGnssLocation: Boolean = true,
     onMapTap: (LatLngPoint) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -171,15 +172,19 @@ fun GisMapView(
                 }
             }
 
-            // 4. Render Active External GNSS Receiver Cursor
+            // 4. Render Active External GNSS Receiver Cursor & Auto-Center / Follow Position
             if (gnssPosition != null && gnssPosition.fixQuality != GnssFixQuality.NO_FIX) {
                 val gnssPoint = GeoPoint(gnssPosition.latitude, gnssPosition.longitude)
                 val gnssMarker = Marker(map).apply {
                     position = gnssPoint
-                    title = "GNSS Position (${gnssPosition.fixQuality.displayName})"
+                    title = "Trimble / GNSS Position (${gnssPosition.fixQuality.displayName})"
                     snippet = "Sats: ${gnssPosition.satellitesCount}, HDOP: ${gnssPosition.hdop}"
                 }
                 map.overlays.add(gnssMarker)
+
+                if (followGnssLocation) {
+                    map.controller.animateTo(gnssPoint)
+                }
             }
 
             map.invalidate()

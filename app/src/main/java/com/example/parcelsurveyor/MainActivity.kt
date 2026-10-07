@@ -127,6 +127,7 @@ fun GisAppScreen(
     var savedFeatures by remember { mutableStateOf<List<Pair<FeatureLayerType, List<FeatureRecord>>>>(emptyList()) }
     var showBluetoothDialog by remember { mutableStateOf(false) }
     var showLayerPickerModal by remember { mutableStateOf(false) }
+    var followGnssLocation by remember { mutableStateOf(true) }
 
     val connectionState by gnssManager.connectionState.collectAsState()
     val connectedDevice by gnssManager.connectedDevice.collectAsState()
@@ -311,6 +312,7 @@ fun GisAppScreen(
                 savedFeatures = savedFeatures,
                 currentShapePoints = currentShapePoints,
                 gnssPosition = gnssPosition,
+                followGnssLocation = followGnssLocation,
                 onMapTap = { point ->
                     val layer = activeLayer
                     if (layer == null) {
@@ -327,6 +329,30 @@ fun GisAppScreen(
                 },
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Location Follow Mode Toggle Button (Top Right of Map)
+            FloatingActionButton(
+                onClick = {
+                    followGnssLocation = !followGnssLocation
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar(
+                            if (followGnssLocation) "GNSS Location Auto-Follow ON" else "GNSS Location Auto-Follow OFF"
+                        )
+                    }
+                },
+                containerColor = if (followGnssLocation) Color(0xFF4CAF50) else MaterialTheme.colorScheme.surface,
+                contentColor = if (followGnssLocation) Color.White else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .size(44.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.GpsFixed,
+                    contentDescription = "Toggle GNSS Follow",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
 
             // Active Collection Bottom Panel Overlay
             activeLayer?.let { layer ->
