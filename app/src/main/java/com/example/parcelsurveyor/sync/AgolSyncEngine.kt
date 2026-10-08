@@ -7,8 +7,11 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
+import java.io.FileInputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.io.PrintWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -134,9 +137,58 @@ class AgolSyncEngine(private val dbHelper: GisDatabaseHelper) {
                 }
             }
 
+            // Sync Unsynced Attachments
+            syncPhotoAttachments(agolServiceUrl)
+
             SyncResult(success = true, syncedCount = totalSynced)
         } catch (e: Exception) {
             SyncResult(success = false, syncedCount = totalSynced, errorMessage = e.localizedMessage)
+        }
+    }
+
+    private fun syncPhotoAttachments(agolServiceUrl: String) {
+        val unsyncedAttachments = dbHelper.getUnsyncedAttachments()
+        for (att in unsyncedAttachments) {
+            val file = File(att.photoPath)
+            if (!file.exists()) continue
+
+            try {
+                // Layer index default 0 for detail points
+                val endpoint = "${agolServiceUrl.trimEnd('/')}/0/${att.globalId}/addAttachment?f=json"
+                val boundary = "===Boundary" + System.currentTimeMillis()
+                val url = URL(endpoint)
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+
+                conn.outputStream.use { os ->
+                    PrintWriter(OutputStreamWriter(os, "UTF-8"), true).use { writer ->
+                        writer.append("--$boundary\r\n")
+                        writer.append("Content-Disposition: form-data; name=\"attachment\"; filename=\"${file.name}\"\r\n")
+                        writer.append("Content-Type: image/jpeg\r\n\r\n")
+                        writer.flush()
+
+                        FileInputStream(file).use { fis ->
+                            val buffer = ByteArray(4096)
+                            var bytesRead: Int
+                            while (fis.read(buffer).also { bytesRead = it } != -1) {
+                                os.write(buffer, 0, bytesRead)
+                            }
+                            os.flush()
+                        }
+
+                        writer.append("\r\n--$boundary--\r\n")
+                        writer.flush()
+                    }
+                }
+
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    dbHelper.markAttachmentSynced(att.id)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 }

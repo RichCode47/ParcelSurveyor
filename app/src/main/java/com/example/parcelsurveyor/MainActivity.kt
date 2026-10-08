@@ -2,7 +2,9 @@ package com.example.parcelsurveyor
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,11 +20,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Polyline
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timeline
@@ -72,12 +77,19 @@ import com.example.parcelsurveyor.sync.AgolSyncEngine
 import com.example.parcelsurveyor.ui.BluetoothDeviceDialog
 import com.example.parcelsurveyor.ui.CompactGnssChip
 import com.example.parcelsurveyor.ui.GisMapView
+import com.example.parcelsurveyor.ui.StakeoutCard
+import com.example.parcelsurveyor.ui.StakeoutTargetDialog
 import com.example.parcelsurveyor.ui.theme.ParcelSurveyorTheme
 import com.example.parcelsurveyor.util.GisDataExporter
 import com.example.parcelsurveyor.util.GisGeometryUtils
+import com.example.parcelsurveyor.util.PhotoManager
+import com.example.parcelsurveyor.util.StakeoutInfo
+import com.example.parcelsurveyor.util.StakeoutManager
+import com.example.parcelsurveyor.util.UtmConverter
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -126,10 +138,15 @@ fun GisAppScreen(
     var unsyncedCount by remember { mutableIntStateOf(0) }
     var isSyncing by remember { mutableStateOf(false) }
     var savedFeatures by remember { mutableStateOf<List<Pair<FeatureLayerType, List<FeatureRecord>>>>(emptyList()) }
+
     var showBluetoothDialog by remember { mutableStateOf(false) }
     var showLayerPickerModal by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var showStakeoutDialog by remember { mutableStateOf(false) }
     var followGnssLocation by remember { mutableStateOf(true) }
+
+    var currentPhotoFile by remember { mutableStateOf<File?>(null) }
+    var activeStakeoutTarget by remember { mutableStateOf<Pair<LatLngPoint, String>?>(null) }
 
     val connectionState by gnssManager.connectionState.collectAsState()
     val connectedDevice by gnssManager.connectedDevice.collectAsState()
@@ -148,13 +165,29 @@ fun GisAppScreen(
         refreshData()
     }
 
-    fun saveFeature(geometryJson: String) {
+    fun saveFeature(geometryJson: String, photoPath: String? = null) {
         val targetLayer = activeLayer ?: FeatureLayerType.DETAIL_POINT
-        dbHelper.insertFeature(targetLayer.tableName, geometryJson, "Field capture")
+        val globalId = dbHelper.insertFeature(targetLayer.tableName, geometryJson, "Field capture")
+        if (photoPath != null) {
+            dbHelper.addAttachment(globalId, photoPath)
+        }
         currentShapePoints = emptyList()
         refreshData()
         coroutineScope.launch {
             snackbarHostState.showSnackbar("Saved to ${targetLayer.displayName}")
+        }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            val photo = currentPhotoFile
+            if (photo != null) {
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Site photo captured!")
+                }
+            }
         }
     }
 
@@ -220,6 +253,21 @@ fun GisAppScreen(
                     Text("Cancel")
                 }
             }
+        )
+    }
+
+    // Stakeout Target Dialog
+    if (showStakeoutDialog) {
+        StakeoutTargetDialog(
+            savedFeatures = savedFeatures,
+            onSelectTarget = { pt, name ->
+                activeStakeoutTarget = Pair(pt, name)
+                showStakeoutDialog = false
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Stakeout target set: $name")
+                }
+            },
+            onDismiss = { showStakeoutDialog = false }
         )
     }
 
@@ -295,6 +343,13 @@ fun GisAppScreen(
                         onClick = { showBluetoothDialog = true },
                         modifier = Modifier.padding(end = 4.dp)
                     )
+
+                    IconButton(onClick = { showStakeoutDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Navigation,
+                            contentDescription = "Stakeout Beacon Target"
+                        )
+                    }
 
                     IconButton(onClick = { showExportDialog = true }) {
                         Icon(
@@ -378,13 +433,37 @@ fun GisAppScreen(
                             put("lat", point.latitude)
                             put("lng", point.longitude)
                         }
-                        saveFeature(geomObj.toString())
+                        saveFeature(geomObj.toString(), currentPhotoFile?.absolutePath)
+                        currentPhotoFile = null
                     } else {
                         currentShapePoints = currentShapePoints + point
                     }
                 },
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Module 2: Live UTM Coordinate Readout Bar (Top Center)
+            val currentPos = gnssPosition
+            if (currentPos != null && currentPos.fixQuality != GnssFixQuality.NO_FIX) {
+                val utm = remember(currentPos.latitude, currentPos.longitude) {
+                    UtmConverter.fromLatLng(currentPos.latitude, currentPos.longitude)
+                }
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.Black.copy(alpha = 0.75f)
+                ) {
+                    Text(
+                        text = utm.formattedString,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
 
             // Location Follow Mode Toggle Button (Top Right of Map)
             FloatingActionButton(
@@ -410,7 +489,28 @@ fun GisAppScreen(
                 )
             }
 
-            // Active Collection Bottom Panel Overlay with Real-time Measurements
+            // Module 3: Stakeout Overlay Card
+            activeStakeoutTarget?.let { target ->
+                val pos = gnssPosition
+                if (pos != null && pos.fixQuality != GnssFixQuality.NO_FIX) {
+                    val stakeoutInfo = remember(pos.latitude, pos.longitude, target) {
+                        StakeoutManager.calculateStakeout(
+                            currentPos = LatLngPoint(pos.latitude, pos.longitude),
+                            targetPos = target.first,
+                            targetName = target.second
+                        )
+                    }
+                    StakeoutCard(
+                        stakeoutInfo = stakeoutInfo,
+                        onStopStakeout = { activeStakeoutTarget = null },
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 48.dp)
+                    )
+                }
+            }
+
+            // Active Collection Bottom Panel Overlay with Real-time Measurements & Photo Capture
             activeLayer?.let { layer ->
                 Card(
                     modifier = Modifier
@@ -454,8 +554,9 @@ fun GisAppScreen(
                                     )
                                     if (layer.isPoint) {
                                         Text(
-                                            text = "Tap map to save point",
-                                            style = MaterialTheme.typography.bodySmall
+                                            text = if (currentPhotoFile != null) "Photo attached! Tap map to save" else "Tap map to save point",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (currentPhotoFile != null) Color(0xFF4CAF50) else Color.Unspecified
                                         )
                                     } else if (layer == FeatureLayerType.DETAIL_LINE) {
                                         val lenMeters = GisGeometryUtils.calculateLineLengthMeters(currentShapePoints)
@@ -477,14 +578,31 @@ fun GisAppScreen(
                                 }
                             }
 
-                            IconButton(onClick = {
-                                activeLayer = null
-                                currentShapePoints = emptyList()
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Cancel Collection"
-                                )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Camera Photo Button
+                                IconButton(onClick = {
+                                    val photoFile = PhotoManager.createPhotoFile(context)
+                                    currentPhotoFile = photoFile
+                                    val photoUri = PhotoManager.getPhotoUri(context, photoFile)
+                                    cameraLauncher.launch(photoUri)
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "Capture Site Photo",
+                                        tint = if (currentPhotoFile != null) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                IconButton(onClick = {
+                                    activeLayer = null
+                                    currentShapePoints = emptyList()
+                                    currentPhotoFile = null
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Cancel Collection"
+                                    )
+                                }
                             }
                         }
 
@@ -507,7 +625,8 @@ fun GisAppScreen(
                                                     put("lat", pt.latitude)
                                                     put("lng", pt.longitude)
                                                 }
-                                                saveFeature(geomObj.toString())
+                                                saveFeature(geomObj.toString(), currentPhotoFile?.absolutePath)
+                                                currentPhotoFile = null
                                             } else {
                                                 currentShapePoints = currentShapePoints + pt
                                             }
@@ -543,7 +662,8 @@ fun GisAppScreen(
                                                 }
                                                 jsonArr.put(obj)
                                             }
-                                            saveFeature(jsonArr.toString())
+                                            saveFeature(jsonArr.toString(), currentPhotoFile?.absolutePath)
+                                            currentPhotoFile = null
                                         },
                                         modifier = Modifier.weight(1f)
                                     ) {

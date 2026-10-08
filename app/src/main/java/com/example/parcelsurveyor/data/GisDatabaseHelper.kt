@@ -6,11 +6,18 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import java.util.UUID
 
+data class AttachmentRecord(
+    val id: Long,
+    val globalId: String,
+    val photoPath: String,
+    val syncStatus: Int
+)
+
 class GisDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "gis_mvp.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
         val LAYER_TABLES = listOf("DetailPoint", "ParcelPoint", "DetailLine", "DetailPolygon")
     }
 
@@ -27,13 +34,32 @@ class GisDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                 """.trimIndent()
             )
         }
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS FeatureAttachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                globalId TEXT NOT NULL,
+                photoPath TEXT NOT NULL,
+                sync_status INTEGER DEFAULT 1
+            )
+            """.trimIndent()
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        for (layer in LAYER_TABLES) {
-            db.execSQL("DROP TABLE IF EXISTS $layer")
+        if (oldVersion < 2) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS FeatureAttachments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    globalId TEXT NOT NULL,
+                    photoPath TEXT NOT NULL,
+                    sync_status INTEGER DEFAULT 1
+                )
+                """.trimIndent()
+            )
         }
-        onCreate(db)
     }
 
     fun insertFeature(layerName: String, geometryJson: String, notes: String = "Field capture"): String {
@@ -47,6 +73,62 @@ class GisDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
         }
         db.insert(layerName, null, values)
         return globalId
+    }
+
+    fun addAttachment(globalId: String, photoPath: String): Long {
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put("globalId", globalId)
+            put("photoPath", photoPath)
+            put("sync_status", 1)
+        }
+        return db.insert("FeatureAttachments", null, values)
+    }
+
+    fun getAttachmentsForFeature(globalId: String): List<String> {
+        val db = readableDatabase
+        val list = mutableListOf<String>()
+        val cursor = db.query(
+            "FeatureAttachments",
+            arrayOf("photoPath"),
+            "globalId = ?",
+            arrayOf(globalId),
+            null, null, null
+        )
+        while (cursor.moveToNext()) {
+            list.add(cursor.getString(0))
+        }
+        cursor.close()
+        return list
+    }
+
+    fun getUnsyncedAttachments(): List<AttachmentRecord> {
+        val db = readableDatabase
+        val list = mutableListOf<AttachmentRecord>()
+        val cursor = db.query(
+            "FeatureAttachments",
+            arrayOf("id", "globalId", "photoPath", "sync_status"),
+            "sync_status = 1",
+            null, null, null, null
+        )
+        while (cursor.moveToNext()) {
+            list.add(
+                AttachmentRecord(
+                    id = cursor.getLong(0),
+                    globalId = cursor.getString(1),
+                    photoPath = cursor.getString(2),
+                    syncStatus = cursor.getInt(3)
+                )
+            )
+        }
+        cursor.close()
+        return list
+    }
+
+    fun markAttachmentSynced(id: Long) {
+        val db = writableDatabase
+        val values = ContentValues().apply { put("sync_status", 0) }
+        db.update("FeatureAttachments", values, "id = ?", arrayOf(id.toString()))
     }
 
     fun getUnsyncedCount(): Int {
