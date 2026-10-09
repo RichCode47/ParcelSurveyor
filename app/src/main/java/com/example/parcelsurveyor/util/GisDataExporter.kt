@@ -10,8 +10,18 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileWriter
 
+/**
+ * Utility object for exporting collected GIS survey data into standard spatial file formats
+ * (CSV, Google Earth KML, and GeoJSON) and sharing them via Android intents.
+ */
 object GisDataExporter {
 
+    /**
+     * Retrieves or creates the application cache directory designated for export files.
+     *
+     * @param context Application context.
+     * @return File object representing the export cache directory.
+     */
     private fun getExportDirectory(context: Context): File {
         val dir = File(context.cacheDir, "exports")
         if (!dir.exists()) {
@@ -21,7 +31,11 @@ object GisDataExporter {
     }
 
     /**
-     * Exports features to a CSV file.
+     * Exports collected survey features to a CSV file.
+     *
+     * @param context Application context.
+     * @param data List of feature records grouped by layer type.
+     * @return Generated CSV [File].
      */
     fun exportToCsv(
         context: Context,
@@ -59,7 +73,11 @@ object GisDataExporter {
     }
 
     /**
-     * Exports features to a Google Earth KML file.
+     * Exports collected survey features to a Google Earth KML file.
+     *
+     * @param context Application context.
+     * @param data List of feature records grouped by layer type.
+     * @return Generated KML [File].
      */
     fun exportToKml(
         context: Context,
@@ -118,7 +136,11 @@ object GisDataExporter {
     }
 
     /**
-     * Exports features to a GeoJSON file.
+     * Exports collected survey features to a standard GeoJSON FeatureCollection file.
+     *
+     * @param context Application context.
+     * @param data List of feature records grouped by layer type.
+     * @return Generated GeoJSON [File].
      */
     fun exportToGeoJson(
         context: Context,
@@ -200,7 +222,11 @@ object GisDataExporter {
     }
 
     /**
-     * Shares an exported file via Android Share Intent.
+     * Shares an exported survey file via Android ACTION_SEND intent.
+     *
+     * @param context Application context.
+     * @param file The exported [File] to share.
+     * @param mimeType MIME type of the export file.
      */
     fun shareExportedFile(context: Context, file: File, mimeType: String) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)

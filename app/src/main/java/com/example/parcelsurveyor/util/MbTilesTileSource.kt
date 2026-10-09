@@ -8,6 +8,9 @@ import org.osmdroid.tileprovider.tilesource.BitmapTileSourceBase
 import java.io.ByteArrayInputStream
 import java.io.File
 
+/**
+ * Custom osmdroid tile source for reading offline raster map tiles from an MBTiles SQLite database file.
+ */
 class MbTilesTileSource private constructor(
     name: String,
     minZoom: Int,
@@ -17,6 +20,12 @@ class MbTilesTileSource private constructor(
 ) : BitmapTileSourceBase(name, minZoom, maxZoom, tileSize, ".png") {
 
     companion object {
+        /**
+         * Creates an [MbTilesTileSource] instance from an MBTiles SQLite file.
+         *
+         * @param file The MBTiles database [File].
+         * @return Initialized [MbTilesTileSource] instance, or null if file is invalid or missing.
+         */
         fun create(file: File): MbTilesTileSource? {
             if (!file.exists()) return null
             return try {
@@ -41,6 +50,14 @@ class MbTilesTileSource private constructor(
         }
     }
 
+    /**
+     * Retrieves the bitmap tile drawable for the specified zoom and tile coordinates.
+     *
+     * @param zoom Map zoom level.
+     * @param x Tile X coordinate.
+     * @param y Tile Y coordinate.
+     * @return Tile image [Drawable], or null if tile is missing.
+     */
     fun getTileDrawable(zoom: Int, x: Int, y: Int): Drawable? {
         val tmsY = (1 shl zoom) - 1 - y
         val cursor = db.rawQuery(
@@ -61,6 +78,9 @@ class MbTilesTileSource private constructor(
         return drawable
     }
 
+    /**
+     * Closes the underlying MBTiles SQLite database connection.
+     */
     fun close() {
         if (db.isOpen) {
             db.close()

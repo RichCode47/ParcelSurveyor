@@ -8,12 +8,21 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/**
+ * Utility object providing geodetic spatial calculation methods (Haversine distance,
+ * polyline length, polygon area computation, and formatting helpers).
+ */
 object GisGeometryUtils {
 
+    /** Mean earth radius in meters (WGS84 sphere approximation). */
     private const val EARTH_RADIUS_METERS = 6371000.0
 
     /**
-     * Calculates distance between two LatLngPoints using the Haversine formula.
+     * Calculates distance between two [LatLngPoint] coordinates using the Haversine formula.
+     *
+     * @param p1 First coordinate point.
+     * @param p2 Second coordinate point.
+     * @return Distance in meters.
      */
     fun calculateDistanceMeters(p1: LatLngPoint, p2: LatLngPoint): Double {
         val dLat = Math.toRadians(p2.latitude - p1.latitude)
@@ -28,7 +37,10 @@ object GisGeometryUtils {
     }
 
     /**
-     * Calculates total length of a polyline in meters.
+     * Calculates the total length of a polyline path in meters.
+     *
+     * @param points List of vertex [LatLngPoint] coordinates.
+     * @return Total polyline length in meters.
      */
     fun calculateLineLengthMeters(points: List<LatLngPoint>): Double {
         if (points.size < 2) return 0.0
@@ -40,7 +52,10 @@ object GisGeometryUtils {
     }
 
     /**
-     * Calculates geodesic area of a polygon ring in square meters using planar projection.
+     * Calculates the geodesic area of a polygon ring in square meters using planar projection.
+     *
+     * @param points List of vertex [LatLngPoint] coordinates defining the polygon.
+     * @return Polygon area in square meters.
      */
     fun calculatePolygonAreaSqMeters(points: List<LatLngPoint>): Double {
         if (points.size < 3) return 0.0
@@ -68,7 +83,10 @@ object GisGeometryUtils {
     }
 
     /**
-     * Formats distance in meters or kilometers.
+     * Formats a distance value in meters into a readable string (meters or kilometers).
+     *
+     * @param meters Distance in meters.
+     * @return Formatted distance string.
      */
     fun formatDistanceString(meters: Double): String {
         return if (meters < 1000.0) {
@@ -79,7 +97,10 @@ object GisGeometryUtils {
     }
 
     /**
-     * Formats area into Square Meters, Hectares, and Acres.
+     * Formats an area value into square meters, hectares, and acres.
+     *
+     * @param sqMeters Area in square meters.
+     * @return Formatted area summary string.
      */
     fun formatAreaSummary(sqMeters: Double): String {
         val hectares = sqMeters / 10000.0

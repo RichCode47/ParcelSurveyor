@@ -32,6 +32,14 @@ import com.example.parcelsurveyor.gnss.ConnectionState
 import com.example.parcelsurveyor.gnss.GnssFixQuality
 import com.example.parcelsurveyor.gnss.GnssPosition
 
+/**
+ * Composable chip displaying real-time GNSS fix quality, satellite count, and Bluetooth connection status.
+ *
+ * @property connectionState Current Bluetooth connection state ([ConnectionState]).
+ * @property position Current [GnssPosition] update containing fix quality and satellite count.
+ * @property onClick Callback invoked when the chip is clicked to open device settings.
+ * @property modifier Modifier for styling and sizing the chip.
+ */
 @Composable
 fun CompactGnssChip(
     connectionState: ConnectionState,
@@ -83,6 +91,16 @@ fun CompactGnssChip(
     }
 }
 
+/**
+ * AlertDialog composable for discovering, selecting, and connecting to external Bluetooth RTK GNSS receivers.
+ *
+ * @property devices List of paired [BluetoothDeviceInfo] devices available.
+ * @property connectionState Current Bluetooth connection state.
+ * @property connectedDevice Currently connected [BluetoothDeviceInfo], if any.
+ * @property onSelectDevice Callback invoked when a device is selected for connection.
+ * @property onDisconnect Callback invoked when disconnecting the active receiver.
+ * @property onDismiss Callback invoked when the dialog is dismissed.
+ */
 @Composable
 fun BluetoothDeviceDialog(
     devices: List<BluetoothDeviceInfo>,
@@ -148,6 +166,12 @@ fun BluetoothDeviceDialog(
     )
 }
 
+/**
+ * Parses a hex color code string into a Compose [Color].
+ *
+ * @property hex Hex color code string (e.g., "#4CAF50").
+ * @return The parsed Compose [Color], or [Color.Gray] if parsing fails.
+ */
 private fun parseHexColor(hex: String): Color {
     return try {
         Color(android.graphics.Color.parseColor(hex))

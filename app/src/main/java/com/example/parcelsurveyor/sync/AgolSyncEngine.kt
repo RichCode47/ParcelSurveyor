@@ -16,14 +16,33 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
+/**
+ * Data class representing the result of an ArcGIS Online (AGOL) synchronization operation.
+ *
+ * @property success True if synchronization completed successfully without errors.
+ * @property syncedCount Total number of feature records successfully synchronized.
+ * @property errorMessage Optional error description message if synchronization failed.
+ */
 data class SyncResult(
     val success: Boolean,
     val syncedCount: Int,
     val errorMessage: String? = null
 )
 
+/**
+ * Synchronization engine responsible for formatting local GIS feature records and photo attachments
+ * into Esri REST API payloads and pushing them to ArcGIS Online (AGOL) feature service endpoints.
+ *
+ * @property dbHelper The local SQLite database helper instance.
+ */
 class AgolSyncEngine(private val dbHelper: GisDatabaseHelper) {
 
+    /**
+     * Synchronizes all unsynced feature layers and photo attachments to the specified AGOL feature service URL.
+     *
+     * @param agolServiceUrl Base REST URL of the ArcGIS FeatureServer.
+     * @return A [SyncResult] indicating success/failure and count of synced features.
+     */
     suspend fun syncAllLayers(agolServiceUrl: String): SyncResult = withContext(Dispatchers.IO) {
         var totalSynced = 0
 
@@ -88,7 +107,17 @@ class AgolSyncEngine(private val dbHelper: GisDatabaseHelper) {
 
                     val attributes = JSONObject().apply {
                         put("GlobalID", record.globalId)
-                        put("Notes", record.notes)
+                        try {
+                            val notesObj = JSONObject(record.notes)
+                            val keys = notesObj.keys()
+                            while (keys.hasNext()) {
+                                val key = keys.next()
+                                put(key, notesObj.get(key))
+                            }
+                            put("Notes", notesObj.optString("Description", record.notes))
+                        } catch (e: Exception) {
+                            put("Notes", record.notes)
+                        }
                     }
 
                     val addFeature = JSONObject().apply {
@@ -146,6 +175,11 @@ class AgolSyncEngine(private val dbHelper: GisDatabaseHelper) {
         }
     }
 
+    /**
+     * Uploads pending unsynced photo attachments to their corresponding AGOL features via multipart HTTP requests.
+     *
+     * @param agolServiceUrl Base REST URL of the ArcGIS FeatureServer.
+     */
     private fun syncPhotoAttachments(agolServiceUrl: String) {
         val unsyncedAttachments = dbHelper.getUnsyncedAttachments()
         for (att in unsyncedAttachments) {

@@ -27,15 +27,19 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Polyline
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -74,8 +78,17 @@ import com.example.parcelsurveyor.data.LatLngPoint
 import com.example.parcelsurveyor.gnss.BluetoothGnssManager
 import com.example.parcelsurveyor.gnss.GnssFixQuality
 import com.example.parcelsurveyor.sync.AgolSyncEngine
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.material.icons.filled.List
 import com.example.parcelsurveyor.ui.BluetoothDeviceDialog
 import com.example.parcelsurveyor.ui.CompactGnssChip
+import com.example.parcelsurveyor.ui.DiagnosticsDialog
+import com.example.parcelsurveyor.ui.FeatureAttributeDialog
+import com.example.parcelsurveyor.ui.FeatureEditDialog
+import com.example.parcelsurveyor.ui.FeatureListDialog
 import com.example.parcelsurveyor.ui.GisMapView
 import com.example.parcelsurveyor.ui.StakeoutCard
 import com.example.parcelsurveyor.ui.StakeoutTargetDialog
@@ -86,11 +99,16 @@ import com.example.parcelsurveyor.util.PhotoManager
 import com.example.parcelsurveyor.util.StakeoutInfo
 import com.example.parcelsurveyor.util.StakeoutManager
 import com.example.parcelsurveyor.util.UtmConverter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
+/**
+ * Main application activity for the Parcel Surveyor GIS field collection application.
+ */
 class MainActivity : ComponentActivity() {
 
     private lateinit var dbHelper: GisDatabaseHelper
@@ -122,6 +140,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Root Composable screen for the Parcel Surveyor application.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GisAppScreen(
@@ -147,6 +168,21 @@ fun GisAppScreen(
 
     var currentPhotoFile by remember { mutableStateOf<File?>(null) }
     var activeStakeoutTarget by remember { mutableStateOf<Pair<LatLngPoint, String>?>(null) }
+    var selectedFeatureForEdit by remember { mutableStateOf<Pair<FeatureLayerType, FeatureRecord>?>(null) }
+
+    // SharedPreferences draft auto-save and restoration state.
+    // Why SharedPreferences beats DB for draft state:
+    // Draft-in-progress points and active layer are ephemeral, volatile user input. Storing them in permanent spatial SQLite tables
+    // adds unnecessary relational schema overhead, migration complexity, and database bloat for temporary work-in-progress data.
+    // SharedPreferences provides fast, lightweight key-value persistence specifically designed for app preferences and ephemeral state.
+    val prefs = remember { context.getSharedPreferences("parcel_surveyor_draft", Context.MODE_PRIVATE) }
+    val shapeHistory = remember { mutableStateListOf<List<LatLngPoint>>() }
+
+    var showAttributeDialog by remember { mutableStateOf(false) }
+    var pendingGeometryJson by remember { mutableStateOf<String?>(null) }
+    var showFeatureListDialog by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
+    var targetMapCenter by remember { mutableStateOf<LatLngPoint?>(null) }
 
     val connectionState by gnssManager.connectionState.collectAsState()
     val connectedDevice by gnssManager.connectedDevice.collectAsState()
@@ -154,27 +190,137 @@ fun GisAppScreen(
 
     val agolServiceUrl = "https://servicesX.arcgis.com/YOUR_ORG/arcgis/rest/services/YOUR_SVC/FeatureServer"
 
+    /**
+     * Refreshes local feature counts and loaded feature collections from the database asynchronously.
+     */
     fun refreshData() {
-        unsyncedCount = dbHelper.getUnsyncedCount()
-        savedFeatures = FeatureLayerType.ALL_LAYERS.map { layer ->
-            Pair(layer, dbHelper.getAllFeatures(layer.tableName))
+        coroutineScope.launch(Dispatchers.IO) {
+            val count = dbHelper.getUnsyncedCount()
+            val features = FeatureLayerType.ALL_LAYERS.map { layer ->
+                Pair(layer, dbHelper.getAllFeatures(layer.tableName))
+            }
+            withContext(Dispatchers.Main) {
+                unsyncedCount = count
+                savedFeatures = features
+            }
         }
     }
 
+    val breadcrumbPoints = remember { mutableStateListOf<LatLngPoint>() }
+    var showDiagnosticsDialog by remember { mutableStateOf(false) }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val fineGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] ?: false
+        val coarseGranted = permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
+        if (fineGranted || coarseGranted) {
+            gnssManager.startInternalGps(context)
+        }
+    }
+
+    // Restore draft and request permissions on initial load
     LaunchedEffect(Unit) {
         refreshData()
+        val finePermission = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION)
+        if (finePermission != PackageManager.PERMISSION_GRANTED) {
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        } else {
+            gnssManager.startInternalGps(context)
+        }
+
+        val savedLayerName = prefs.getString("active_layer", null)
+        val savedPointsJson = prefs.getString("draft_points", null)
+        if (savedLayerName != null && savedPointsJson != null) {
+            activeLayer = FeatureLayerType.fromTableName(savedLayerName)
+            try {
+                val arr = JSONArray(savedPointsJson)
+                val list = mutableListOf<LatLngPoint>()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    list.add(LatLngPoint(obj.getDouble("lat"), obj.getDouble("lng")))
+                }
+                currentShapePoints = list
+            } catch (_: Exception) {
+                // Ignore
+            }
+        }
     }
 
-    fun saveFeature(geometryJson: String, photoPath: String? = null) {
-        val targetLayer = activeLayer ?: FeatureLayerType.DETAIL_POINT
-        val globalId = dbHelper.insertFeature(targetLayer.tableName, geometryJson, "Field capture")
-        if (photoPath != null) {
-            dbHelper.addAttachment(globalId, photoPath)
+    // Breadcrumb trail logging
+    LaunchedEffect(gnssPosition) {
+        val pos = gnssPosition
+        if (pos != null && pos.fixQuality != GnssFixQuality.NO_FIX) {
+            val pt = LatLngPoint(pos.latitude, pos.longitude)
+            if (breadcrumbPoints.isEmpty() || GisGeometryUtils.calculateDistanceMeters(breadcrumbPoints.last(), pt) >= 1.0) {
+                breadcrumbPoints.add(pt)
+            }
         }
+    }
+
+    // Save draft on change
+    LaunchedEffect(activeLayer, currentShapePoints) {
+        val editor = prefs.edit()
+        if (activeLayer != null && currentShapePoints.isNotEmpty()) {
+            editor.putString("active_layer", activeLayer?.tableName)
+            val arr = JSONArray()
+            for (pt in currentShapePoints) {
+                arr.put(JSONObject().apply {
+                    put("lat", pt.latitude)
+                    put("lng", pt.longitude)
+                })
+            }
+            editor.putString("draft_points", arr.toString())
+        } else {
+            editor.clear()
+        }
+        editor.apply()
+    }
+
+    fun clearDraft() {
+        prefs.edit().clear().apply()
+        activeLayer = null
         currentShapePoints = emptyList()
-        refreshData()
-        coroutineScope.launch {
-            snackbarHostState.showSnackbar("Saved to ${targetLayer.displayName}")
+        shapeHistory.clear()
+        currentPhotoFile = null
+    }
+
+    fun addVertexWithUndo(newPoint: LatLngPoint) {
+        if (shapeHistory.size >= 20) {
+            shapeHistory.removeAt(0)
+        }
+        shapeHistory.add(currentShapePoints)
+        currentShapePoints = currentShapePoints + newPoint
+    }
+
+    fun undoLastVertex() {
+        if (shapeHistory.isNotEmpty()) {
+            currentShapePoints = shapeHistory.removeAt(shapeHistory.size - 1)
+        }
+    }
+
+    fun saveFeatureWithAttributes(geometryJson: String, attributesJson: String, photoPath: String? = null) {
+        val targetLayer = activeLayer ?: FeatureLayerType.DETAIL_POINT
+        coroutineScope.launch(Dispatchers.IO) {
+            val globalId = dbHelper.insertFeature(targetLayer.tableName, geometryJson, attributesJson)
+            if (photoPath != null) {
+                dbHelper.addAttachment(globalId, photoPath)
+            }
+            val count = dbHelper.getUnsyncedCount()
+            val features = FeatureLayerType.ALL_LAYERS.map { layer ->
+                Pair(layer, dbHelper.getAllFeatures(layer.tableName))
+            }
+            withContext(Dispatchers.Main) {
+                clearDraft()
+                unsyncedCount = count
+                savedFeatures = features
+                snackbarHostState.showSnackbar("Saved ${targetLayer.displayName} with attributes!")
+            }
         }
     }
 
@@ -192,7 +338,15 @@ fun GisAppScreen(
     }
 
     if (showBluetoothDialog) {
-        val pairedDevices = remember { gnssManager.getPairedDevices(context) }
+        var pairedDevices by remember { mutableStateOf<List<com.example.parcelsurveyor.gnss.BluetoothDeviceInfo>>(emptyList()) }
+        LaunchedEffect(Unit) {
+            withContext(Dispatchers.IO) {
+                val devices = gnssManager.getPairedDevices(context)
+                withContext(Dispatchers.Main) {
+                    pairedDevices = devices
+                }
+            }
+        }
         BluetoothDeviceDialog(
             devices = pairedDevices,
             connectionState = connectionState,
@@ -222,8 +376,12 @@ fun GisAppScreen(
                         icon = Icons.Default.Share,
                         onClick = {
                             showExportDialog = false
-                            val file = GisDataExporter.exportToCsv(context, savedFeatures)
-                            GisDataExporter.shareExportedFile(context, file, "text/csv")
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val file = GisDataExporter.exportToCsv(context, savedFeatures)
+                                withContext(Dispatchers.Main) {
+                                    GisDataExporter.shareExportedFile(context, file, "text/csv")
+                                }
+                            }
                         }
                     )
                     FeatureLayerOption(
@@ -232,8 +390,12 @@ fun GisAppScreen(
                         icon = Icons.Default.Share,
                         onClick = {
                             showExportDialog = false
-                            val file = GisDataExporter.exportToKml(context, savedFeatures)
-                            GisDataExporter.shareExportedFile(context, file, "application/vnd.google-earth.kml+xml")
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val file = GisDataExporter.exportToKml(context, savedFeatures)
+                                withContext(Dispatchers.Main) {
+                                    GisDataExporter.shareExportedFile(context, file, "application/vnd.google-earth.kml+xml")
+                                }
+                            }
                         }
                     )
                     FeatureLayerOption(
@@ -242,8 +404,12 @@ fun GisAppScreen(
                         icon = Icons.Default.Share,
                         onClick = {
                             showExportDialog = false
-                            val file = GisDataExporter.exportToGeoJson(context, savedFeatures)
-                            GisDataExporter.shareExportedFile(context, file, "application/geo+json")
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val file = GisDataExporter.exportToGeoJson(context, savedFeatures)
+                                withContext(Dispatchers.Main) {
+                                    GisDataExporter.shareExportedFile(context, file, "application/geo+json")
+                                }
+                            }
                         }
                     )
                 }
@@ -328,10 +494,38 @@ fun GisAppScreen(
         )
     }
 
+    // Attribute Form Dialog
+    if (showAttributeDialog && pendingGeometryJson != null) {
+        FeatureAttributeDialog(
+            layerType = activeLayer ?: FeatureLayerType.DETAIL_POINT,
+            onSave = { attributesJson ->
+                val geom = pendingGeometryJson!!
+                pendingGeometryJson = null
+                showAttributeDialog = false
+                saveFeatureWithAttributes(geom, attributesJson, currentPhotoFile?.absolutePath)
+            },
+            onDismiss = {
+                showAttributeDialog = false
+                pendingGeometryJson = null
+            }
+        )
+    }
+
+    // Feature List & Search Dialog
+    if (showFeatureListDialog) {
+        FeatureListDialog(
+            savedFeatures = savedFeatures,
+            onZoomToFeature = { pt ->
+                targetMapCenter = pt
+            },
+            onDismiss = { showFeatureListDialog = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("GIS Field Collector", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+                title = { Text("GIS Surveyor", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -341,22 +535,8 @@ fun GisAppScreen(
                         connectionState = connectionState,
                         position = gnssPosition,
                         onClick = { showBluetoothDialog = true },
-                        modifier = Modifier.padding(end = 4.dp)
+                        modifier = Modifier.padding(end = 2.dp)
                     )
-
-                    IconButton(onClick = { showStakeoutDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Navigation,
-                            contentDescription = "Stakeout Beacon Target"
-                        )
-                    }
-
-                    IconButton(onClick = { showExportDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Export Survey Data"
-                        )
-                    }
 
                     TextButton(
                         onClick = {
@@ -382,7 +562,7 @@ fun GisAppScreen(
                     ) {
                         if (isSyncing) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(14.dp),
                                 strokeWidth = 2.dp
                             )
                         } else {
@@ -391,7 +571,54 @@ fun GisAppScreen(
                                 contentDescription = "Sync",
                                 modifier = Modifier.padding(end = 2.dp)
                             )
-                            Text("Sync ($unsyncedCount)", fontSize = 12.sp)
+                            Text("Sync ($unsyncedCount)", fontSize = 11.sp)
+                        }
+                    }
+
+                    // Overflow 3-dot Menu for Secondary Survey Tools
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More Tools"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Search Features") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showFeatureListDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Stakeout Target") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showStakeoutDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Navigation, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export Data") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showExportDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("GNSS Diagnostics") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showDiagnosticsDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Map, contentDescription = null) }
+                            )
                         }
                     }
                 }
@@ -424,7 +651,10 @@ fun GisAppScreen(
                 currentShapePoints = currentShapePoints,
                 gnssPosition = gnssPosition,
                 followGnssLocation = followGnssLocation,
+                targetCenterPoint = targetMapCenter,
+                breadcrumbPoints = breadcrumbPoints,
                 onMapTap = { point ->
+                    targetMapCenter = null // reset target center on map interaction
                     val layer = activeLayer
                     if (layer == null) {
                         showLayerPickerModal = true
@@ -433,14 +663,67 @@ fun GisAppScreen(
                             put("lat", point.latitude)
                             put("lng", point.longitude)
                         }
-                        saveFeature(geomObj.toString(), currentPhotoFile?.absolutePath)
-                        currentPhotoFile = null
+                        pendingGeometryJson = geomObj.toString()
+                        showAttributeDialog = true
                     } else {
-                        currentShapePoints = currentShapePoints + point
+                        addVertexWithUndo(point)
                     }
+                },
+                onFeatureClick = { layerType, rec ->
+                    selectedFeatureForEdit = Pair(layerType, rec)
                 },
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Diagnostics Dialog
+            if (showDiagnosticsDialog) {
+                DiagnosticsDialog(
+                    connectionState = connectionState,
+                    currentPosition = gnssPosition,
+                    onDismiss = { showDiagnosticsDialog = false }
+                )
+            }
+
+            // Feature Edit Dialog
+            selectedFeatureForEdit?.let { (layerType, record) ->
+                FeatureEditDialog(
+                    layerType = layerType,
+                    feature = record,
+                    currentGnssPosition = gnssPosition,
+                    onSave = { newNotes, newGeomJson ->
+                        val geomToSave = newGeomJson ?: record.geometryJson
+                        coroutineScope.launch(Dispatchers.IO) {
+                            dbHelper.updateFeature(layerType.tableName, record.globalId, geomToSave, newNotes)
+                            val count = dbHelper.getUnsyncedCount()
+                            val features = FeatureLayerType.ALL_LAYERS.map { layer ->
+                                Pair(layer, dbHelper.getAllFeatures(layer.tableName))
+                            }
+                            withContext(Dispatchers.Main) {
+                                selectedFeatureForEdit = null
+                                unsyncedCount = count
+                                savedFeatures = features
+                                snackbarHostState.showSnackbar("Updated ${layerType.displayName} (Sync pending)")
+                            }
+                        }
+                    },
+                    onDelete = {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            dbHelper.deleteFeature(layerType.tableName, record.globalId)
+                            val count = dbHelper.getUnsyncedCount()
+                            val features = FeatureLayerType.ALL_LAYERS.map { layer ->
+                                Pair(layer, dbHelper.getAllFeatures(layer.tableName))
+                            }
+                            withContext(Dispatchers.Main) {
+                                selectedFeatureForEdit = null
+                                unsyncedCount = count
+                                savedFeatures = features
+                                snackbarHostState.showSnackbar("Deleted ${layerType.displayName}")
+                            }
+                        }
+                    },
+                    onDismiss = { selectedFeatureForEdit = null }
+                )
+            }
 
             // Module 2: Live UTM Coordinate Readout Bar (Top Center)
             val currentPos = gnssPosition
@@ -594,9 +877,7 @@ fun GisAppScreen(
                                 }
 
                                 IconButton(onClick = {
-                                    activeLayer = null
-                                    currentShapePoints = emptyList()
-                                    currentPhotoFile = null
+                                    clearDraft()
                                 }) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
@@ -625,10 +906,10 @@ fun GisAppScreen(
                                                     put("lat", pt.latitude)
                                                     put("lng", pt.longitude)
                                                 }
-                                                saveFeature(geomObj.toString(), currentPhotoFile?.absolutePath)
-                                                currentPhotoFile = null
+                                                pendingGeometryJson = geomObj.toString()
+                                                showAttributeDialog = true
                                             } else {
-                                                currentShapePoints = currentShapePoints + pt
+                                                addVertexWithUndo(pt)
                                             }
                                         },
                                         modifier = Modifier.weight(1f)
@@ -643,8 +924,15 @@ fun GisAppScreen(
                                     }
                                 }
 
+                                // Undo Button (Max history stack of 20 vertices)
                                 if (!layer.isPoint && currentShapePoints.isNotEmpty()) {
-                                    IconButton(onClick = { currentShapePoints = emptyList() }) {
+                                    OutlinedButton(
+                                        onClick = { undoLastVertex() }
+                                    ) {
+                                        Text("Undo (${shapeHistory.size})", fontSize = 11.sp)
+                                    }
+
+                                    IconButton(onClick = { clearDraft() }) {
                                         Icon(
                                             imageVector = Icons.Default.Delete,
                                             contentDescription = "Clear",
@@ -662,8 +950,8 @@ fun GisAppScreen(
                                                 }
                                                 jsonArr.put(obj)
                                             }
-                                            saveFeature(jsonArr.toString(), currentPhotoFile?.absolutePath)
-                                            currentPhotoFile = null
+                                            pendingGeometryJson = jsonArr.toString()
+                                            showAttributeDialog = true
                                         },
                                         modifier = Modifier.weight(1f)
                                     ) {
@@ -679,6 +967,9 @@ fun GisAppScreen(
     }
 }
 
+/**
+ * Reusable Composable option item for selecting feature layers or export formats in dialogs.
+ */
 @Composable
 fun FeatureLayerOption(
     title: String,

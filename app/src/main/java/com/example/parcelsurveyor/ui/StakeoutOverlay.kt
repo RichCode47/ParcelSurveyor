@@ -36,11 +36,25 @@ import com.example.parcelsurveyor.util.StakeoutInfo
 import org.json.JSONObject
 import java.util.Locale
 
+/**
+ * Data class representing a selectable target item for stakeout navigation.
+ *
+ * @property point Geographic coordinates ([LatLngPoint]) of the target.
+ * @property name Human-readable name or label of the target.
+ */
 data class StakeoutTargetItem(
     val point: LatLngPoint,
     val name: String
 )
 
+/**
+ * Composable card displaying real-time stakeout navigation guidance (distance, bearing,
+ * and Easting/Northing offsets) relative to a selected target beacon.
+ *
+ * @property stakeoutInfo Calculated [StakeoutInfo] containing navigation metrics.
+ * @property onStopStakeout Callback invoked when exiting stakeout navigation mode.
+ * @property modifier Modifier for styling and sizing the card.
+ */
 @Composable
 fun StakeoutCard(
     stakeoutInfo: StakeoutInfo,
@@ -106,6 +120,13 @@ fun StakeoutCard(
     }
 }
 
+/**
+ * AlertDialog composable allowing users to select a saved point feature as a stakeout navigation target.
+ *
+ * @property savedFeatures List of saved feature records grouped by layer type.
+ * @property onSelectTarget Callback invoked when a target point is selected ([LatLngPoint] and name).
+ * @property onDismiss Callback invoked when the dialog is dismissed.
+ */
 @Composable
 fun StakeoutTargetDialog(
     savedFeatures: List<Pair<FeatureLayerType, List<FeatureRecord>>>,

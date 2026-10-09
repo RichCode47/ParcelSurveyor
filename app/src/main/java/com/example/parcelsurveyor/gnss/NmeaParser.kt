@@ -1,10 +1,18 @@
 package com.example.parcelsurveyor.gnss
 
+/**
+ * Utility object for parsing NMEA 0183 sentences ($GPGGA, $GNGGA, etc.) received from GNSS receivers
+ * into structured [GnssPosition] data objects.
+ */
 object NmeaParser {
 
     /**
-     * Parses NMEA 0183 sentences (supports $GPGGA, $GNGGA, $GDRMC, etc.)
+     * Parses NMEA 0183 sentences (supports $GPGGA, $GNGGA, $GDRMC, etc.).
      * Returns a GnssPosition object if parsing succeeds, or null if invalid sentence.
+     *
+     * @param line Raw NMEA sentence string.
+     * @param isBluetooth Flag indicating whether sentence originates from a Bluetooth GNSS receiver.
+     * @return Parsed [GnssPosition] object, or null if parsing fails.
      */
     fun parseNmeaLine(line: String, isBluetooth: Boolean = true): GnssPosition? {
         val trimmed = line.trim()
@@ -28,6 +36,13 @@ object NmeaParser {
         return null
     }
 
+    /**
+     * Parses GGA sentence tokens into a [GnssPosition].
+     *
+     * @param tokens Comma-separated token list from the GGA sentence.
+     * @param isBluetooth Flag indicating Bluetooth origin.
+     * @return Parsed [GnssPosition] object, or null if tokens are insufficient or invalid.
+     */
     private fun parseGgaSentence(tokens: List<String>, isBluetooth: Boolean): GnssPosition? {
         if (tokens.size < 10) return null
 
@@ -70,6 +85,10 @@ object NmeaParser {
     /**
      * Converts NMEA Latitude format DDMM.MMMM to decimal degrees.
      * Example: "1525.0020", "S" -> -15.4167
+     *
+     * @param nmeaLat NMEA latitude string in DDMM.MMMM format.
+     * @param direction Hemisphere direction indicator ('N' or 'S').
+     * @return Latitude in decimal degrees, or null if parsing fails.
      */
     fun parseNmeaLatitude(nmeaLat: String, direction: String): Double? {
         if (nmeaLat.length < 4) return null
@@ -85,6 +104,10 @@ object NmeaParser {
     /**
      * Converts NMEA Longitude format DDDMM.MMMM to decimal degrees.
      * Example: "02817.0000", "E" -> 28.28333
+     *
+     * @param nmeaLng NMEA longitude string in DDDMM.MMMM format.
+     * @param direction Hemisphere direction indicator ('E' or 'W').
+     * @return Longitude in decimal degrees, or null if parsing fails.
      */
     fun parseNmeaLongitude(nmeaLng: String, direction: String): Double? {
         if (nmeaLng.length < 5) return null

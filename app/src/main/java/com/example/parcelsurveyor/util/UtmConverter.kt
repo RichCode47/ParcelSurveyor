@@ -7,12 +7,21 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.tan
 
+/**
+ * Data class representing a projected Universal Transverse Mercator (UTM) coordinate.
+ *
+ * @property zone UTM longitudinal zone number (1 - 60).
+ * @property hemisphere Hemisphere indicator character ('N' or 'S').
+ * @property easting Easting coordinate in meters.
+ * @property northing Northing coordinate in meters.
+ */
 data class UtmCoordinate(
     val zone: Int,
     val hemisphere: Char,
     val easting: Double,
     val northing: Double
 ) {
+    /** Formatted string representation of the UTM coordinate. */
     val formattedString: String
         get() = String.format(
             Locale.US,
@@ -21,15 +30,37 @@ data class UtmCoordinate(
         )
 }
 
+/**
+ * Utility object for converting WGS84 geographic coordinates (Latitude / Longitude)
+ * into projected Universal Transverse Mercator (UTM) coordinates.
+ */
 object UtmConverter {
 
+    /** Central meridian scale factor for UTM projection. */
     private const val K0 = 0.9996
-    private const val A = 6378137.0 // WGS84 Semi-major axis
-    private const val F = 1.0 / 298.257223563 // WGS84 Flattening
+
+    /** WGS84 ellipsoid semi-major axis in meters. */
+    private const val A = 6378137.0
+
+    /** WGS84 ellipsoid flattening. */
+    private const val F = 1.0 / 298.257223563
+
+    /** WGS84 ellipsoid semi-minor axis in meters. */
     private const val B = A * (1.0 - F)
+
+    /** First eccentricity squared. */
     private const val E2 = (A * A - B * B) / (A * A)
+
+    /** Second eccentricity squared. */
     private const val EP2 = (A * A - B * B) / (B * B)
 
+    /**
+     * Converts WGS84 latitude and longitude into a projected [UtmCoordinate].
+     *
+     * @param lat Latitude in decimal degrees.
+     * @param lng Longitude in decimal degrees.
+     * @return Projected [UtmCoordinate].
+     */
     fun fromLatLng(lat: Double, lng: Double): UtmCoordinate {
         val latRad = Math.toRadians(lat)
         val lngRad = Math.toRadians(lng)
@@ -87,6 +118,12 @@ object UtmConverter {
         )
     }
 
+    /**
+     * Converts a [LatLngPoint] into a projected [UtmCoordinate].
+     *
+     * @param point Geographic coordinate [LatLngPoint].
+     * @return Projected [UtmCoordinate].
+     */
     fun fromLatLngPoint(point: LatLngPoint): UtmCoordinate {
         return fromLatLng(point.latitude, point.longitude)
     }

@@ -1,0 +1,71 @@
+================================================================================
+PARCEL SURVEYOR - PROJECT DOCUMENTATION ADDITION PROCESS
+================================================================================
+
+This document details the complete process and summary of adding comprehensive KDoc documentation across all Kotlin source files in the ParcelSurveyor project (`com.example.parcelsurveyor`).
+
+--------------------------------------------------------------------------------
+1. PROJECT OVERVIEW & SCOPE
+--------------------------------------------------------------------------------
+ParcelSurveyor is an Android GIS and land surveying application built with Jetpack Compose, SQLite/MBTiles, Bluetooth GNSS integration, ArcGIS Online synchronization, and spatial geometry utilities.
+
+To improve code maintainability, API discoverability, and developer experience, thorough KDoc comments (`/** ... */`) were added to every class, interface, data class, enum, property, and public/private function across all 16 Kotlin source files in the project.
+
+--------------------------------------------------------------------------------
+2. DOCUMENTED FILES & COMPONENTS
+--------------------------------------------------------------------------------
+
+A. Root Package
+- MainActivity.kt:
+  * Documented `MainActivity` activity class, lifecycle methods, permission handling, and UI state management.
+  * Documented `GisAppScreen` composable function (main navigation layout, bottom bar, and screen switching).
+  * Documented `FeatureLayerOption` enum and helper UI components.
+
+B. Data Layer (`com.example.parcelsurveyor.data`)
+- GisDatabaseHelper.kt:
+  * Documented SQLite database helper class for spatial data management (`AttachmentRecord`, `GisDatabaseHelper`).
+  * Documented methods for feature insertion, retrieval, spatial querying, attachment tracking, and sync status management.
+- GisModels.kt:
+  * Documented core domain models: `LatLngPoint`, `FeatureLayerType`, and `FeatureRecord`.
+
+C. GNSS Integration Layer (`com.example.parcelsurveyor.gnss`)
+- BluetoothGnssManager.kt:
+  * Documented Bluetooth classic GNSS receiver manager (`BluetoothGnssManager`, `ConnectionState`).
+  * Documented device discovery, paired device listing, RFCOMM socket connection, and background NMEA stream reading coroutines.
+- GnssModels.kt:
+  * Documented GNSS data structures: `GnssFixQuality`, `GnssPosition`, and `BluetoothDeviceInfo`.
+- NmeaParser.kt:
+  * Documented NMEA sentence parser (`NmeaParser`) for extracting precision fix data from GGA sentences and converting NMEA coordinate formats to decimal degrees.
+
+D. Synchronization Engine (`com.example.parcelsurveyor.sync`)
+- AgolSyncEngine.kt:
+  * Documented ArcGIS Online sync engine (`AgolSyncEngine`, `SyncResult`).
+  * Documented HTTP client requests for uploading local feature edits and multipart photo attachments to AGOL feature services.
+
+E. User Interface Layer (`com.example.parcelsurveyor.ui`)
+- GisMapView.kt:
+  * Documented interactive map view composable (`GisMapView`, `ESRI_WORLD_IMAGERY_TILE_SOURCE`), marker rendering, panning, zooming, and tap-to-inspect features.
+- GnssStatusBar.kt:
+  * Documented GNSS status bar widget (`CompactGnssChip`, `BluetoothDeviceDialog`), connection state indicators, precision metrics, and Bluetooth device selector dialogs.
+- StakeoutOverlay.kt:
+  * Documented stakeout navigation overlay (`StakeoutTargetItem`, `StakeoutCard`, `StakeoutTargetDialog`) for guiding surveyors to target coordinates.
+
+F. Utilities & Calculations (`com.example.parcelsurveyor.util`)
+- GisDataExporter.kt:
+  * Documented GIS data exporter (`GisDataExporter`) for generating CSV, KML, and GeoJSON files and sharing them via Android Intents.
+- GisGeometryUtils.kt:
+  * Documented spatial geometry utility functions (`GisGeometryUtils`) including Haversine distance, line length, polygon area calculations, and coordinate formatting.
+- MbTilesTileSource.kt:
+  * Documented offline raster map tile source (`MbTilesTileSource`) for reading tiles from MBTiles SQLite databases.
+- PhotoManager.kt:
+  * Documented photo capture manager (`PhotoManager`) for creating timestamped image files and generating secure FileProvider URIs.
+- StakeoutManager.kt:
+  * Documented stakeout navigation calculator (`StakeoutManager`, `StakeoutInfo`) computing distance and azimuth bearing to target points.
+- UtmConverter.kt:
+  * Documented Universal Transverse Mercator (UTM) coordinate converter (`UtmConverter`, `UtmCoordinate`) for projecting WGS84 lat/lng coordinates to UTM grid coordinates.
+
+--------------------------------------------------------------------------------
+3. VERIFICATION & BUILD PROCESS
+--------------------------------------------------------------------------------
+- Following the addition of KDoc comments across all 16 files, a full project build was executed via Gradle (`app:assembleDebug`).
+- Result: Build finished successfully with zero compilation errors, syntax issues, or documentation linter warnings.
