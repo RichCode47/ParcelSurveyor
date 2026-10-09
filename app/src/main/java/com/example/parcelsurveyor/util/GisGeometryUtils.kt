@@ -107,4 +107,46 @@ object GisGeometryUtils {
         val acres = sqMeters * 0.000247105
         return String.format(Locale.US, "%,.1f m² (%,.3f ha / %,.2f acres)", sqMeters, hectares, acres)
     }
+
+    /**
+     * Calculates the initial azimuth / bearing in degrees (0 to 360) from [p1] to [p2].
+     *
+     * @param p1 Starting coordinate.
+     * @param p2 Target coordinate.
+     * @return Azimuth bearing in decimal degrees.
+     */
+    fun calculateBearingDegrees(p1: LatLngPoint, p2: LatLngPoint): Double {
+        val lat1Rad = Math.toRadians(p1.latitude)
+        val lat2Rad = Math.toRadians(p2.latitude)
+        val dLngRad = Math.toRadians(p2.longitude - p1.longitude)
+
+        val y = sin(dLngRad) * cos(lat2Rad)
+        val x = cos(lat1Rad) * sin(lat2Rad) - sin(lat1Rad) * cos(lat2Rad) * cos(dLngRad)
+        val bearing = Math.toDegrees(atan2(y, x))
+        return (bearing + 360.0) % 360.0
+    }
+
+    /**
+     * Calculates the destination coordinate given a starting [start] point, distance in meters,
+     * and azimuth bearing in degrees.
+     *
+     * @param start Starting coordinate.
+     * @param distanceMeters Distance to travel in meters.
+     * @param bearingDegrees Azimuth bearing in degrees.
+     * @return Destination [LatLngPoint].
+     */
+    fun destinationPoint(start: LatLngPoint, distanceMeters: Double, bearingDegrees: Double): LatLngPoint {
+        val distRatio = distanceMeters / EARTH_RADIUS_METERS
+        val bearingRad = Math.toRadians(bearingDegrees)
+        val lat1Rad = Math.toRadians(start.latitude)
+        val lng1Rad = Math.toRadians(start.longitude)
+
+        val lat2Rad = kotlin.math.asin(sin(lat1Rad) * cos(distRatio) + cos(lat1Rad) * sin(distRatio) * cos(bearingRad))
+        val lng2Rad = lng1Rad + atan2(
+            sin(bearingRad) * sin(distRatio) * cos(lat1Rad),
+            cos(distRatio) - sin(lat1Rad) * sin(lat2Rad)
+        )
+
+        return LatLngPoint(Math.toDegrees(lat2Rad), Math.toDegrees(lng2Rad))
+    }
 }

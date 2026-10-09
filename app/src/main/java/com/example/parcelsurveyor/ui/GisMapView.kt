@@ -241,7 +241,7 @@ fun GisMapView(
                 map.overlays.add(gnssMarker)
 
                 if (followGnssLocation) {
-                    map.controller.animateTo(gnssPoint)
+                    map.controller.setCenter(gnssPoint)
                 }
 
                 // Render GNSS Accuracy Circle (Requirement 103)
@@ -275,11 +275,9 @@ fun GisMapView(
             }
 
             if (targetCenterPoint != null) {
-                map.controller.animateTo(GeoPoint(targetCenterPoint.latitude, targetCenterPoint.longitude))
+                map.controller.setCenter(GeoPoint(targetCenterPoint.latitude, targetCenterPoint.longitude))
                 map.controller.setZoom(18.0)
             }
-
-            map.invalidate()
         }
     )
 }

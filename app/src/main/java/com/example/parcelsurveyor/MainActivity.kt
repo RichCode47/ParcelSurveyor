@@ -92,6 +92,8 @@ import com.example.parcelsurveyor.ui.FeatureListDialog
 import com.example.parcelsurveyor.ui.GisMapView
 import com.example.parcelsurveyor.ui.StakeoutCard
 import com.example.parcelsurveyor.ui.StakeoutTargetDialog
+import com.example.parcelsurveyor.ui.TraverseCalculatorDialog
+import androidx.compose.material.icons.filled.Calculate
 import com.example.parcelsurveyor.ui.theme.ParcelSurveyorTheme
 import com.example.parcelsurveyor.util.GisDataExporter
 import com.example.parcelsurveyor.util.GisGeometryUtils
@@ -164,7 +166,7 @@ fun GisAppScreen(
     var showLayerPickerModal by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var showStakeoutDialog by remember { mutableStateOf(false) }
-    var followGnssLocation by remember { mutableStateOf(true) }
+    var followGnssLocation by remember { mutableStateOf(false) }
 
     var currentPhotoFile by remember { mutableStateOf<File?>(null) }
     var activeStakeoutTarget by remember { mutableStateOf<Pair<LatLngPoint, String>?>(null) }
@@ -208,6 +210,7 @@ fun GisAppScreen(
 
     val breadcrumbPoints = remember { mutableStateListOf<LatLngPoint>() }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
+    var showTraverseDialog by remember { mutableStateOf(false) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -304,12 +307,12 @@ fun GisAppScreen(
         }
     }
 
-    fun saveFeatureWithAttributes(geometryJson: String, attributesJson: String, photoPath: String? = null) {
+    fun saveFeatureWithAttributes(geometryJson: String, attributesJson: String, photoPaths: List<String> = emptyList()) {
         val targetLayer = activeLayer ?: FeatureLayerType.DETAIL_POINT
         coroutineScope.launch(Dispatchers.IO) {
             val globalId = dbHelper.insertFeature(targetLayer.tableName, geometryJson, attributesJson)
-            if (photoPath != null) {
-                dbHelper.addAttachment(globalId, photoPath)
+            for (path in photoPaths) {
+                dbHelper.addAttachment(globalId, path)
             }
             val count = dbHelper.getUnsyncedCount()
             val features = FeatureLayerType.ALL_LAYERS.map { layer ->
@@ -319,7 +322,8 @@ fun GisAppScreen(
                 clearDraft()
                 unsyncedCount = count
                 savedFeatures = features
-                snackbarHostState.showSnackbar("Saved ${targetLayer.displayName} with attributes!")
+                val photoMsg = if (photoPaths.isNotEmpty()) " & ${photoPaths.size} photo(s)" else ""
+                snackbarHostState.showSnackbar("Saved ${targetLayer.displayName} with attributes$photoMsg!")
             }
         }
     }
@@ -498,11 +502,11 @@ fun GisAppScreen(
     if (showAttributeDialog && pendingGeometryJson != null) {
         FeatureAttributeDialog(
             layerType = activeLayer ?: FeatureLayerType.DETAIL_POINT,
-            onSave = { attributesJson ->
+            onSave = { attributesJson, photoPaths ->
                 val geom = pendingGeometryJson!!
                 pendingGeometryJson = null
                 showAttributeDialog = false
-                saveFeatureWithAttributes(geom, attributesJson, currentPhotoFile?.absolutePath)
+                saveFeatureWithAttributes(geom, attributesJson, photoPaths)
             },
             onDismiss = {
                 showAttributeDialog = false
@@ -612,6 +616,14 @@ fun GisAppScreen(
                                 leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
                             )
                             DropdownMenuItem(
+                                text = { Text("Traverse & Closure") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showTraverseDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Calculate, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("GNSS Diagnostics") },
                                 onClick = {
                                     showOverflowMenu = false
@@ -684,16 +696,37 @@ fun GisAppScreen(
                 )
             }
 
+            // Traverse Calculator Dialog
+            if (showTraverseDialog) {
+                TraverseCalculatorDialog(
+                    draftPoints = currentShapePoints,
+                    onApplyBalancedShape = { balancedPoints ->
+                        currentShapePoints = balancedPoints.toMutableList()
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("Applied Bowditch balancing to map draft shape!")
+                        }
+                    },
+                    onDismiss = { showTraverseDialog = false }
+                )
+            }
+
             // Feature Edit Dialog
             selectedFeatureForEdit?.let { (layerType, record) ->
+                val existingPhotos = remember(record.globalId) {
+                    dbHelper.getAttachmentsForFeature(record.globalId)
+                }
                 FeatureEditDialog(
                     layerType = layerType,
                     feature = record,
+                    initialPhotos = existingPhotos,
                     currentGnssPosition = gnssPosition,
-                    onSave = { newNotes, newGeomJson ->
+                    onSave = { newNotes, newGeomJson, newPhotoPaths ->
                         val geomToSave = newGeomJson ?: record.geometryJson
                         coroutineScope.launch(Dispatchers.IO) {
                             dbHelper.updateFeature(layerType.tableName, record.globalId, geomToSave, newNotes)
+                            for (path in newPhotoPaths) {
+                                dbHelper.addAttachment(record.globalId, path)
+                            }
                             val count = dbHelper.getUnsyncedCount()
                             val features = FeatureLayerType.ALL_LAYERS.map { layer ->
                                 Pair(layer, dbHelper.getAllFeatures(layer.tableName))

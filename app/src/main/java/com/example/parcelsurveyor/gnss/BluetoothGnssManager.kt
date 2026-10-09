@@ -66,17 +66,21 @@ class BluetoothGnssManager {
 
         val listener = android.location.LocationListener { loc ->
             if (_connectionState.value != ConnectionState.CONNECTED) {
-                val pos = GnssPosition(
-                    latitude = loc.latitude,
-                    longitude = loc.longitude,
-                    altitude = loc.altitude,
-                    fixQuality = GnssFixQuality.GPS_SPS,
-                    satellitesCount = 8,
-                    hdop = if (loc.hasAccuracy()) loc.accuracy.toDouble() / 5.0 else 1.0,
-                    timestamp = loc.time,
-                    isBluetooth = false
-                )
-                _currentPosition.value = pos
+                val now = System.currentTimeMillis()
+                val lastPos = _currentPosition.value
+                if (lastPos == null || (now - lastPos.timestamp) >= 1000L) {
+                    val pos = GnssPosition(
+                        latitude = loc.latitude,
+                        longitude = loc.longitude,
+                        altitude = loc.altitude,
+                        fixQuality = GnssFixQuality.GPS_SPS,
+                        satellitesCount = 8,
+                        hdop = if (loc.hasAccuracy()) loc.accuracy.toDouble() / 5.0 else 1.0,
+                        timestamp = now,
+                        isBluetooth = false
+                    )
+                    _currentPosition.value = pos
+                }
             }
         }
         locationListener = listener
