@@ -7,6 +7,8 @@ import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import com.example.parcelsurveyor.data.LatLngPoint
+import com.example.parcelsurveyor.util.GisGeometryUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,18 +70,34 @@ class BluetoothGnssManager {
             if (_connectionState.value != ConnectionState.CONNECTED) {
                 val now = System.currentTimeMillis()
                 val lastPos = _currentPosition.value
-                if (lastPos == null || (now - lastPos.timestamp) >= 1000L) {
-                    val pos = GnssPosition(
-                        latitude = loc.latitude,
-                        longitude = loc.longitude,
-                        altitude = loc.altitude,
-                        fixQuality = GnssFixQuality.GPS_SPS,
-                        satellitesCount = 8,
-                        hdop = if (loc.hasAccuracy()) loc.accuracy.toDouble() / 5.0 else 1.0,
-                        timestamp = now,
-                        isBluetooth = false
-                    )
-                    _currentPosition.value = pos
+
+                if (lastPos == null || (now - lastPos.timestamp) >= 800L) {
+                    val p1 = LatLngPoint(lastPos?.latitude ?: 0.0, lastPos?.longitude ?: 0.0)
+                    val p2 = LatLngPoint(loc.latitude, loc.longitude)
+                    val dist = if (lastPos != null) GisGeometryUtils.calculateDistanceMeters(p1, p2) else 10.0
+
+                    if (lastPos == null || dist >= 0.2 || (now - lastPos.timestamp) >= 2000L) {
+                        val computedBearing = if (loc.hasBearing() && loc.bearing != 0f) {
+                            loc.bearing
+                        } else if (lastPos != null && dist > 0.3) {
+                            GisGeometryUtils.calculateBearingDegrees(p1, p2).toFloat()
+                        } else lastPos?.bearing ?: 0f
+
+                        val hdopVal = if (loc.hasAccuracy()) loc.accuracy.toDouble() / 5.0 else 1.0
+                        val pos = GnssPosition(
+                            latitude = loc.latitude,
+                            longitude = loc.longitude,
+                            altitude = loc.altitude,
+                            fixQuality = GnssFixQuality.GPS_SPS,
+                            satellitesCount = 8,
+                            hdop = hdopVal,
+                            vdop = hdopVal * 1.2,
+                            bearing = computedBearing,
+                            timestamp = now,
+                            isBluetooth = false
+                        )
+                        _currentPosition.value = pos
+                    }
                 }
             }
         }
@@ -190,7 +208,18 @@ class BluetoothGnssManager {
                     val nmea = reader.readLine() ?: break
                     val pos = NmeaParser.parseNmeaLine(nmea, isBluetooth = true)
                     if (pos != null) {
-                        _currentPosition.value = pos
+                        val lastPos = _currentPosition.value
+                        val computedBearing = if (pos.bearing != 0f) {
+                            pos.bearing
+                        } else if (lastPos != null) {
+                            val p1 = LatLngPoint(lastPos.latitude, lastPos.longitude)
+                            val p2 = LatLngPoint(pos.latitude, pos.longitude)
+                            if (GisGeometryUtils.calculateDistanceMeters(p1, p2) > 0.3) {
+                                GisGeometryUtils.calculateBearingDegrees(p1, p2).toFloat()
+                            } else lastPos.bearing
+                        } else 0f
+
+                        _currentPosition.value = pos.copy(bearing = computedBearing)
                     }
                 }
             } catch (e: Exception) {

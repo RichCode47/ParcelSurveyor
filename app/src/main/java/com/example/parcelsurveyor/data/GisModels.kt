@@ -121,6 +121,7 @@ object LayerSchemaRepository {
      */
     fun getSchemaForLayer(layerType: FeatureLayerType): List<AttributeFieldSchema> {
         val commonFields = listOf(
+            AttributeFieldSchema("ParcelCertNumber", "Parcel Certificate Number", AttributeFieldType.TEXT, defaultValue = "CERT-001"),
             AttributeFieldSchema("Description", "Description / Notes", AttributeFieldType.TEXT, defaultValue = "Field survey capture"),
             AttributeFieldSchema("Surveyor", "Surveyor Name", AttributeFieldType.TEXT, defaultValue = "Field Team"),
             AttributeFieldSchema("SurveyDate", "Survey Date", AttributeFieldType.DATE)

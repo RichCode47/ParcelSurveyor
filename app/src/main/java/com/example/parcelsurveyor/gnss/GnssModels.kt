@@ -62,6 +62,8 @@ enum class GnssFixQuality(
  * @property fixQuality Quality grade of the GNSS position fix.
  * @property satellitesCount Number of satellites used in computing the fix.
  * @property hdop Horizontal Dilution of Precision indicator.
+ * @property vdop Vertical Dilution of Precision indicator.
+ * @property bearing Direction of movement / course over ground in decimal degrees (0° - 360°).
  * @property timestamp Epoch timestamp in milliseconds when the position was recorded.
  * @property isBluetooth True if position originated from an external Bluetooth GNSS receiver.
  */
@@ -72,6 +74,8 @@ data class GnssPosition(
     val fixQuality: GnssFixQuality = GnssFixQuality.NO_FIX,
     val satellitesCount: Int = 0,
     val hdop: Double = 0.0,
+    val vdop: Double = 0.0,
+    val bearing: Float = 0f,
     val timestamp: Long = System.currentTimeMillis(),
     val isBluetooth: Boolean = false
 )

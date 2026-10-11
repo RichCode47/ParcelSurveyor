@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddLocation
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
@@ -41,6 +42,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -449,7 +451,7 @@ fun GisAppScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     FeatureLayerOption(
-                        title = "DetailPoint",
+                        title = FeatureLayerType.DETAIL_POINT.displayName,
                         description = "Collect single detail points",
                         icon = Icons.Default.LocationOn,
                         onClick = {
@@ -459,8 +461,8 @@ fun GisAppScreen(
                         }
                     )
                     FeatureLayerOption(
-                        title = "ParcelPoint",
-                        description = "Collect parcel boundary points",
+                        title = FeatureLayerType.PARCEL_POINT.displayName,
+                        description = "Collect parcel boundary corner points",
                         icon = Icons.Default.LocationOn,
                         onClick = {
                             activeLayer = FeatureLayerType.PARCEL_POINT
@@ -469,7 +471,7 @@ fun GisAppScreen(
                         }
                     )
                     FeatureLayerOption(
-                        title = "DetailLine",
+                        title = FeatureLayerType.DETAIL_LINE.displayName,
                         description = "Draw lines or linear boundaries",
                         icon = Icons.Default.Timeline,
                         onClick = {
@@ -479,7 +481,7 @@ fun GisAppScreen(
                         }
                     )
                     FeatureLayerOption(
-                        title = "DetailPolygon",
+                        title = FeatureLayerType.DETAIL_POLYGON.displayName,
                         description = "Draw land parcel polygon areas",
                         icon = Icons.Default.Polyline,
                         onClick = {
@@ -767,7 +769,7 @@ fun GisAppScreen(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = 8.dp),
+                        .padding(top = 58.dp),
                     shape = RoundedCornerShape(16.dp),
                     color = Color.Black.copy(alpha = 0.75f)
                 ) {
@@ -781,7 +783,7 @@ fun GisAppScreen(
                 }
             }
 
-            // Location Follow Mode Toggle Button (Top Right of Map)
+            // Location Follow Mode Toggle Button (Top Right of Map below Compass)
             FloatingActionButton(
                 onClick = {
                     followGnssLocation = !followGnssLocation
@@ -795,7 +797,7 @@ fun GisAppScreen(
                 contentColor = if (followGnssLocation) Color.White else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(16.dp)
+                    .padding(top = 68.dp, end = 10.dp)
                     .size(44.dp)
             ) {
                 Icon(
@@ -824,6 +826,58 @@ fun GisAppScreen(
                             .padding(top = 48.dp)
                     )
                 }
+            }
+
+            // Floating "Record Beacon at My Location" Button when walking boundaries
+            activeLayer?.let { layer ->
+                val pos = gnssPosition
+                val isGnssAvailable = pos != null && pos.fixQuality != GnssFixQuality.NO_FIX
+
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        val capturePt = if (isGnssAvailable) {
+                            LatLngPoint(pos.latitude, pos.longitude)
+                        } else {
+                            targetMapCenter ?: LatLngPoint(-15.4167, 28.2833)
+                        }
+
+                        if (layer.isPoint) {
+                            val geomObj = JSONObject().apply {
+                                put("lat", capturePt.latitude)
+                                put("lng", capturePt.longitude)
+                            }
+                            pendingGeometryJson = geomObj.toString()
+                            showAttributeDialog = true
+                        } else {
+                            addVertexWithUndo(capturePt)
+                            val beaconNum = currentShapePoints.size
+                            val accText = if (isGnssAvailable) String.format(java.util.Locale.US, " (Acc: ±%.2fm)", maxOf(0.02, pos.hdop * 0.25)) else ""
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Recorded Beacon #$beaconNum at live location$accText!")
+                            }
+                        }
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.AddLocation,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    text = {
+                        val label = when {
+                            layer.isPoint -> "Record Beacon / Point"
+                            layer == FeatureLayerType.DETAIL_POLYGON -> "Record Beacon #${currentShapePoints.size + 1}"
+                            else -> "Record Vertex #${currentShapePoints.size + 1}"
+                        }
+                        Text(label, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 140.dp, end = 16.dp)
+                )
             }
 
             // Active Collection Bottom Panel Overlay with Real-time Measurements & Photo Capture
